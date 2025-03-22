@@ -1,6 +1,6 @@
 ---
 title: "Characterizing Automobiles"
-author: "Your Name Here"
+author: "Hannah Shane Kate Pahama"
 date: "03/17/2025"
 
 format: 
@@ -40,6 +40,7 @@ head(Auto)
 
 ```{r df2}
 names(Auto)
+print(Auto$mpg)
 ```
 
 # Multiple Regression
@@ -48,7 +49,15 @@ names(Auto)
 - Compute and comment on the RMSE.
 
 ```{r regression}
-# Your code here
+model <- lm(mpg ~ horsepower + year,
+            data = Auto)
+summary(model)
+
+predicted_mpg <- predict(model,
+                         Auto)
+rmse <- sqrt(mean((Auto$mpg - predicted_mpg)^2))
+print(paste("RMSE:",
+            rmse))
 ```
 
 > <span style="color:red;font-weight:bold">TODO</span>: *Explain*
@@ -61,10 +70,39 @@ names(Auto)
 - Compute and comment on the RMSE.
 
 ```{r features}
-# Your code here
+anyNA(Auto)
+str(Auto)
+
+Auto$name <- as.character(Auto$name)
+
+Auto <- Auto %>%
+  mutate(
+    brand = word(name, 1),
+    is_wagon = ifelse(str_detect(name,
+                                 "convertible"),
+                      1, 0),
+    name_length = nchar(name),
+    word_count = str_count(name,
+                           "\\S+"),
+    is_sporty = ifelse(str_detect(name, "sport|fast|speed"),
+                       1, 0)
+  )
+
+#we skip na dropping since there exist no na in anyna
+
+Auto <- dummy_cols(Auto,
+                   select_columns = "brand",
+                   remove_first_dummy = TRUE)
+
+model <- lm(
+  mpg ~ .,
+  data = Auto
+)
+
+summary(model)
 ```
 
-> <span style="color:red;font-weight:bold">TODO</span>: *Explain*
+> <span style="color:red;font-weight:bold">TODO</span>: *The regression results indicate a significant and well-fitting model(?), with 98.16% of the variation in the dependent variable explained by the predictors (Multiple R-squared) and a strong overall significance (p-value < 2.2e-16). However, the residual standard error of 2.272 suggests some variability remains, which could be explored further with additional diagnostics or feature refinement.*
 
 # Classification
 
@@ -73,10 +111,62 @@ names(Auto)
 - Report on your Kappa value.
 
 ```{r classification}
-# Your code here
+Auto_class <- Auto %>%
+  filter(brand %in% c("chevrolet",
+                      "honda")) %>%
+  mutate(target = ifelse(brand == "chevrolet",
+                         1, 0)) %>%
+  select(-brand, -name)
+
+set.seed(123)
+
+# Split data
+train_index <- createDataPartition(Auto_class$target,
+                                   p = 0.8,
+                                   list = FALSE)
+train_data <- Auto_class[train_index, ]
+test_data <- Auto_class[-train_index, ]
+
+# Preprocess: Normalize numeric features (center and scale)
+pre_proc <- preProcess(train_data[, -ncol(train_data)], 
+                       method = c("center",
+                                  "scale"))
+train_data_scaled <- predict(pre_proc,
+                             train_data)
+test_data_scaled <- predict(pre_proc,
+                            test_data)
+
+train_data_scaled$target <- factor(train_data$target,
+                                   levels = c(0, 1))
+test_data_scaled$target <- factor(test_data$target,
+                                  levels = c(0, 1))
+
+# Train KNN mod
+knn_model <- train(target ~ ., 
+                   data = train_data_scaled, 
+                   method = "knn", 
+                   tuneLength = 5)
+print(knn_model)
+
+# Generate predictions
+predictions <- predict(knn_model,
+                       test_data_scaled)
+
+predictions <- factor(predictions,
+                      levels = levels(test_data_scaled$target))
+
+# Confusion Mat
+confusion_mat <- confusionMatrix(predictions,
+                                 test_data_scaled$target)
+print(confusion_mat)
+
+# Calculate Kappa
+kappa_value <- confusion_mat$overall["Kappa"]
+print(paste("Kappa Value:",
+            kappa_value))
 ```
 
-> <span style="color:red;font-weight:bold">TODO</span>: *Explain*
+> <span style="color:red;font-weight:bold">TODO</span>: *The model achieved perfect performance with 100% accuracy, sensitivity, specificity, and a Kappa value of 1, indicating flawless agreement between predictions and actual results. However, the small dataset and potential class imbalance could limit generalizability.*
 
 # Binary Classification
 
@@ -85,10 +175,69 @@ names(Auto)
 - Display and comment on an ROC curve.
 
 ```{r binary classification}
-# Your code here
+library(tidyverse)
+library(caret)
+library(pROC)
+
+Auto_class <- Auto %>%
+  mutate(target = ifelse(brand == "honda",
+                         1, 0)) %>%
+  select(-brand,
+         -name)
+
+# Train/Test Split
+set.seed(123)
+train_index <- createDataPartition(Auto_class$target,
+                                   p = 0.8,
+                                   list = FALSE)
+train_data <- Auto_class[train_index, ]
+test_data <- Auto_class[-train_index, ]
+
+#Preprocessing
+pre_proc <- preProcess(train_data[, -ncol(train_data)],
+                       method = c("center", "scale"))
+train_data_scaled <- predict(pre_proc,
+                             train_data)
+test_data_scaled <- predict(pre_proc,
+                            test_data)
+
+# Convert 'target' to factor
+train_data_scaled$target <- factor(train_data$target,
+                                   levels = c(0, 1))
+test_data_scaled$target <- factor(test_data$target,
+                                  levels = c(0, 1))
+
+# Logistic Regression Mod
+logistic_model <- glm(target ~ .,
+                      data = train_data_scaled,
+                      family = binomial)
+summary(logistic_model)
+
+# Make Pred
+test_data_scaled$predicted_probs <- predict(logistic_model,
+                                            test_data_scaled,
+                                            type = "response")
+
+# Step 6: ROC Curve
+roc_curve <- roc(test_data_scaled$target,
+                 test_data_scaled$predicted_probs)
+
+# Plot ROC
+plot(roc_curve,
+     col = "orange",
+     main = "ROC Curve for Predicting Honda")
+abline(a = 0,
+       b = 1,
+       col = "deeppink",
+       lty = 2)
+
+# Calculate and Display AUC
+auc_value <- auc(roc_curve)
+print(paste("AUC:",
+            auc_value))
 ```
 
-> <span style="color:red;font-weight:bold">TODO</span>: *Explain*
+> <span style="color:red;font-weight:bold">TODO</span>: *Running out of time*
 
 # Ethics
 
